@@ -1,7 +1,7 @@
 // Offline support. Serves the app from cache instantly and refreshes the
 // cache in the background, so edits pushed to GitHub show up on the next launch.
 
-const CACHE = 'workout-v1';
+const CACHE = 'workout-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const ASSETS = [
   './js/plan.js',
   './js/poses.js',
   './js/settings.js',
+  './js/stats.js',
   './js/store.js',
   './js/ui.js',
   './icons/icon.svg',
@@ -24,7 +25,13 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the HTTP cache so a new version never precaches stale files.
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      .then((cache) => cache.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (event) => {

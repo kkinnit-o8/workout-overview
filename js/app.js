@@ -4,6 +4,7 @@ import * as store from './store.js';
 import { listPhotos, thumbUrl } from './db.js';
 import { openPhotoSession } from './camera.js';
 import { renderProgress } from './library.js';
+import { renderStats } from './stats.js';
 import { openSettings, isStandalone } from './settings.js';
 import { esc, icon, toast, formatDate, vibrate } from './ui.js';
 
@@ -11,6 +12,7 @@ const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Monday first
 const views = {
   today: document.getElementById('view-today'),
   progress: document.getElementById('view-progress'),
+  stats: document.getElementById('view-stats'),
 };
 
 const state = {
@@ -21,7 +23,8 @@ const state = {
 // --- Tabs ------------------------------------------------------------------
 
 function currentTab() {
-  return location.hash === '#progress' ? 'progress' : 'today';
+  const tab = location.hash.slice(1);
+  return tab in views ? tab : 'today';
 }
 
 function showTab() {
@@ -32,14 +35,15 @@ function showTab() {
     b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false');
   });
   if (tab === 'today') renderToday();
-  else renderProgress(views.progress, { onSettings: settings });
+  else if (tab === 'progress') renderProgress(views.progress, { onSettings: settings });
+  else renderStats(views.stats, { onSettings: settings });
   window.scrollTo(0, 0);
 }
 
 document.querySelector('.tabbar').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-tab]');
   if (!btn) return;
-  const hash = btn.dataset.tab === 'today' ? '#today' : '#progress';
+  const hash = `#${btn.dataset.tab}`;
   if (location.hash === hash) showTab();
   else location.hash = hash;
 });
@@ -107,6 +111,7 @@ async function renderToday() {
       <button class="icon-btn" data-action="settings" aria-label="Settings">${icon('settings')}</button>
     </header>
     <nav class="week-strip" aria-label="Week">${strip}</nav>
+    <div id="weigh-slot">${weighInHTML()}</div>
     ${
       isOtherDay
         ? `<div class="note">
@@ -230,6 +235,78 @@ async function renderPhotoCard(workout) {
   }
 }
 
+// --- Morning weigh-in ----------------------------------------------------------
+
+function relDay(date) {
+  const diff = store.daysBetween(date, state.date);
+  if (diff === 1) return 'yesterday';
+  return formatDate(store.parseDateKey(date), { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function weighInHTML(editing = false) {
+  const entries = store.getBodyWeights();
+  const today = entries.find((e) => e.date === state.date);
+  const prev = entries.filter((e) => e.date < state.date).pop();
+
+  if (today && !editing) {
+    const diff = prev ? Math.round((today.kg - prev.kg) * 10) / 10 : null;
+    const diffText = diff == null ? '' : diff === 0 ? 'same as' : `${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(1)} kg vs`;
+    return `<div class="weigh-in logged">
+      <span class="weigh-icon">${icon('scale')}</span>
+      <div class="weigh-text">
+        <span class="weigh-label">Morning weight</span>
+        <small>${diff == null ? 'First weigh-in logged' : `${diffText} ${esc(relDay(prev.date))}`}</small>
+      </div>
+      <strong class="weigh-value">${store.formatKg(today.kg)}<small> kg</small></strong>
+      <button class="icon-btn sm" data-action="edit-weight" aria-label="Change today's weight">${icon('edit')}</button>
+    </div>`;
+  }
+
+  return `<form class="weigh-in" data-weigh-form>
+    <span class="weigh-icon">${icon('scale')}</span>
+    <div class="weigh-text">
+      <span class="weigh-label">Morning weight</span>
+      <small>${prev ? `Last: ${store.formatKg(prev.kg)} kg · ${esc(relDay(prev.date))}` : 'Before breakfast, every day'}</small>
+    </div>
+    <label class="weigh-input">
+      <input type="text" name="kg" inputmode="decimal" enterkeyhint="done" autocomplete="off"
+        value="${today ? store.formatKg(today.kg) : ''}" placeholder="${prev ? store.formatKg(prev.kg) : '0.0'}"
+        aria-label="This morning's weight in kg">
+      <span>kg</span>
+    </label>
+    <button class="icon-btn weigh-save" type="submit" aria-label="Save weight">${icon('check')}</button>
+  </form>`;
+}
+
+function renderWeighIn(editing = false) {
+  const slot = views.today.querySelector('#weigh-slot');
+  if (!slot) return;
+  slot.innerHTML = weighInHTML(editing);
+  if (editing) slot.querySelector('input')?.focus();
+}
+
+views.today.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-weigh-form]');
+  if (!form) return;
+  e.preventDefault();
+  const input = form.kg;
+  const kg = store.parseKg(input.value);
+  if (kg == null) {
+    if (input.value.trim() === '' && store.getBodyWeights().some((x) => x.date === state.date)) {
+      renderWeighIn(); // left empty while editing: keep the saved value
+      return;
+    }
+    input.classList.add('invalid');
+    toast('Enter your weight in kg, e.g. 82.4');
+    input.focus();
+    return;
+  }
+  store.setBodyWeight(state.date, kg);
+  vibrate(12);
+  renderWeighIn();
+  toast(`Morning weight saved: ${store.formatKg(kg)} kg`);
+});
+
 function startPhotos() {
   const workout = workoutForWeekday(state.weekday);
   openPhotoSession({
@@ -303,6 +380,7 @@ views.today.addEventListener('click', (e) => {
   const action = e.target.closest('[data-action]')?.dataset.action;
   if (action === 'photos') startPhotos();
   else if (action === 'settings') settings();
+  else if (action === 'edit-weight') renderWeighIn(true);
   else if (action === 'back-today') {
     state.weekday = store.parseDateKey(state.date).getDay();
     renderToday();
@@ -315,6 +393,7 @@ views.today.addEventListener('click', (e) => {
 });
 
 views.today.addEventListener('input', (e) => {
+  e.target.classList.remove('invalid');
   const input = e.target.closest('[data-weight]');
   if (!input) return;
   const clean = input.value.replace(',', '.').replace(/[^\d.]/g, '');

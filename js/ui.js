@@ -26,6 +26,10 @@ const ICONS = {
   download: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>',
   upload: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 21h14"/>',
   compare: '<rect x="3" y="4" width="8" height="16" rx="1.5"/><rect x="13" y="4" width="8" height="16" rx="1.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>',
+  scale: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8.5 9.5a5 5 0 0 1 7 0"/><path d="m12 11 1.5-2"/>',
+  chart: '<path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-7"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
 };
 

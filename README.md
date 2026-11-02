@@ -6,12 +6,17 @@ No build step, no server, no accounts. Plain HTML/CSS/JS that GitHub Pages serve
 
 ## Features
 
+- **Morning weigh-in**: a quick card at the top of Today for this morning's body weight (kg). It shows the change since your last weigh-in.
 - **Today**: today's workout (Mon / Tue / Thu / Sat, rest days in between). Tap a set to check it off. There's an optional weight field per exercise, with the last weight you used shown as a hint. The week strip shows what you've completed this week, and you can tap any day to see that workout (or do it today instead).
 - **Progress photos**: once all sets are done, the app asks for 3 poses chosen for that day's muscles (e.g. Arms → front double biceps, side triceps, back double biceps). The camera screen has:
   - a **ghost of your last photo** in the same pose, so you can line up the same distance and angle every time (or a guide figure the first time)
   - a **self-timer** (3/5/10 s, with beeps) so you can prop the phone up and step back
   - front/back camera switching, retake/save, and upload from your camera roll
 - **Progress library**: a timeline of every session, plus **Compare**: side by side, a before/after **swipe**, and a **timelapse** of one pose over time.
+- **Stats**:
+  - a GitHub-style **activity heatmap** for the last year: one square per day, brighter the more of that day's workout you finished. Tap a square to see what you did.
+  - workouts this week, your streak of perfect weeks (all 4 workouts done), and total workouts
+  - a **body-weight chart** with each morning weigh-in plus a 7-day average, so daily water swings don't hide the real trend. You can add, fix or delete any day's entry.
 - **Works offline** after the first load, and installs to the home screen.
 - **Backup**: export/import everything (photos + logs) as one file from Settings.
 
@@ -33,7 +38,7 @@ Install it rather than just bookmarking it. Installed apps work offline, and on 
 
 ## Where the data lives
 
-Everything stays **on your phone**. Photos are in IndexedDB, and set check-offs and weights are in localStorage. Nothing is sent anywhere. That also means deleting the app (or clearing site data) deletes the photos, so use **Settings → Export backup** now and then, and always before switching phones. **Import backup** on the new phone restores everything.
+Everything stays **on your phone**. Photos are in IndexedDB, and set check-offs, lifting weights and body weight are in localStorage. Nothing is sent anywhere. That also means deleting the app (or clearing site data) deletes the photos, so use **Settings → Export backup** now and then, and always before switching phones. **Import backup** on the new phone restores everything.
 
 ## Change the plan
 
@@ -65,7 +70,8 @@ js/poses.js            progress-photo poses + guide figures
 js/camera.js           photo session (camera, ghost overlay, timer)
 js/library.js          Progress tab (timeline, compare, viewer)
 js/settings.js         settings sheet, backup export/import
-js/store.js            set/weight logs (localStorage)
+js/stats.js            Stats tab (activity heatmap, body-weight chart)
+js/store.js            set, lifting-weight and body-weight logs (localStorage)
 js/db.js               photo storage (IndexedDB)
 js/ui.js               icons, toasts, sheets
 icons/                 app icons
