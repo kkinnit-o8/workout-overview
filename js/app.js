@@ -5,6 +5,9 @@ import { listPhotos, thumbUrl } from './db.js';
 import { openPhotoSession } from './camera.js';
 import { renderProgress } from './library.js';
 import { renderStats } from './stats.js';
+import { bodyGoalStatus } from './weight.js';
+import { exerciseById, exerciseGoalStatus, formatLoad } from './exercises.js';
+import { updateNotifySummary } from './notify.js';
 import { openSettings, isStandalone } from './settings.js';
 import { esc, icon, toast, formatDate, vibrate } from './ui.js';
 
@@ -108,7 +111,10 @@ async function renderToday() {
         <div class="eyebrow">${esc(formatDate(now, { weekday: 'long', day: 'numeric', month: 'long' }))}</div>
         <h1>${workout ? esc(workout.title) : 'Rest day'}</h1>
       </div>
-      <button class="icon-btn" data-action="settings" aria-label="Settings">${icon('settings')}</button>
+      <div class="head-actions">
+        <a class="streak-chip" id="streak-chip" href="#stats"></a>
+        <button class="icon-btn" data-action="settings" aria-label="Settings">${icon('settings')}</button>
+      </div>
     </header>
     <nav class="week-strip" aria-label="Week">${strip}</nav>
     <div id="weigh-slot">${weighInHTML()}</div>
@@ -124,6 +130,40 @@ async function renderToday() {
   `;
 
   renderPhotoCard(workout);
+  renderStreak();
+  updateNotifySummary();
+}
+
+// --- Streak ------------------------------------------------------------------
+
+const MILESTONES = [7, 14, 21, 30, 50, 75, 100, 150, 200, 250, 300, 365];
+
+function renderStreak() {
+  const s = store.trainingDays(WORKOUTS).streak();
+  const chip = views.today.querySelector('#streak-chip');
+  if (chip) {
+    chip.className = `streak-chip ${s.pendingToday ? 'pending' : ''}`;
+    chip.innerHTML = `${icon('flame')}<strong>${s.current}</strong>`;
+    chip.setAttribute('aria-label', `${s.current}-day streak${s.pendingToday ? ', today not done yet' : ''}. Open stats.`);
+  }
+  const line = views.today.querySelector('#streak-line');
+  if (line) {
+    const workout = workoutForWeekday(state.weekday);
+    const todayIsWorkout = !!workoutForWeekday(store.parseDateKey(state.date).getDay());
+    if (!todayIsWorkout) {
+      line.innerHTML = `${icon('flame')}<span>Rest days count — your streak is <strong>${s.current} day${s.current === 1 ? '' : 's'}</strong>.</span>`;
+    } else if (s.pendingToday && workout) {
+      const { done, total } = store.progress(state.date, workout);
+      const need = Math.max(1, Math.ceil(total * store.STREAK_SHARE) - done);
+      line.innerHTML = `${icon('flame')}<span>${need} more set${need === 1 ? '' : 's'} to ${s.current ? `keep your <strong>${s.current}-day streak</strong>` : 'start a streak'}.</span>`;
+    } else if (!s.pendingToday) {
+      line.innerHTML = `${icon('flame')}<span>Streak secured: <strong>${s.current} day${s.current === 1 ? '' : 's'}</strong>.</span>`;
+    } else {
+      line.innerHTML = '';
+    }
+    line.classList.toggle('kept', !s.pendingToday);
+  }
+  return s;
 }
 
 function workoutHTML(workout) {
@@ -136,7 +176,9 @@ function workoutHTML(workout) {
       const weight = store.getWeight(ex.id, state.date);
       const last = store.lastWeight(ex.id, state.date);
       const unit = ex.bodyweight ? '+kg' : 'kg';
-      return `<li class="ex ${allDone ? 'done' : ''}" data-ex="${i}">
+      const best = store.exerciseBest(ex.id, state.date);
+      const isRecord = weight !== '' && best && Number(weight) > best.kg;
+      return `<li class="ex ${allDone ? 'done' : ''} ${isRecord ? 'record' : ''}" data-ex="${i}" data-exercise="${esc(ex.id)}">
         <div class="ex-head">
           <div class="ex-num">${allDone ? icon('check') : i + 1}</div>
           <div class="ex-title">
@@ -146,8 +188,8 @@ function workoutHTML(workout) {
           <label class="ex-weight">
             <input type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off"
               data-weight="${esc(ex.id)}" value="${esc(weight)}"
-              placeholder="${last ? esc(last.value) : ex.bodyweight ? 'BW' : '–'}"
-              aria-label="Weight for ${esc(ex.name)} (${unit})">
+              placeholder="${last ? esc(last.value) : ex.bodyweight ? '0' : '–'}"
+              aria-label="${ex.bodyweight ? `Extra weight for ${esc(ex.name)} in kg, on top of your body weight` : `Weight for ${esc(ex.name)} in kg`}">
             <span>${unit}</span>
           </label>
         </div>
@@ -160,7 +202,8 @@ function workoutHTML(workout) {
             )
             .join('')}
         </div>
-        ${last ? `<div class="ex-last">Last time: ${esc(last.value)} ${unit} · ${esc(formatDate(store.parseDateKey(last.date), { day: 'numeric', month: 'short' }))}</div>` : ''}
+        ${ex.bodyweight ? `<div class="ex-bw">${bodyweightLine(weight)}</div>` : ''}
+        <div class="ex-last">${exerciseInfo(ex, last)}</div>
       </li>`;
     })
     .join('');
@@ -172,10 +215,32 @@ function workoutHTML(workout) {
         <strong class="progress-count">${done} / ${total}</strong>
       </div>
       <div class="bar"><span style="width:${(done / total) * 100}%"></span></div>
+      <p class="streak-line" id="streak-line"></p>
     </div>
     <ol class="exercises">${items}</ol>
     <section class="photo-card" id="photo-card"></section>
   `;
+}
+
+// "Last 20 kg · 27 Oct · Record 24 kg · Goal 30 kg"
+function exerciseInfo(ex, last) {
+  const bits = [];
+  const fmt = (kg) => esc(formatLoad(ex, kg));
+  if (last) bits.push(`Last ${fmt(Number(last.value))} · ${esc(formatDate(store.parseDateKey(last.date), { day: 'numeric', month: 'short' }))}`);
+  const best = store.exerciseBest(ex.id, state.date);
+  if (best && (!last || best.kg !== Number(last.value))) bits.push(`${icon('trophy')} Record ${fmt(best.kg)}`);
+  const g = exerciseGoalStatus(ex.id);
+  if (g && !g.reached) bits.push(`${icon('target')} Goal ${fmt(g.goal.targetKg)}`);
+  if (g && g.reached) bits.push(`${icon('target')} Goal reached`);
+  return bits.join('<span class="sep">·</span>');
+}
+
+// For pull-ups/dips: you only type the extra weight; the app adds your body weight.
+function bodyweightLine(extraStr) {
+  const bw = store.bodyWeightOn(state.date);
+  const extra = Number(extraStr) || 0;
+  if (!bw) return 'Write only the <strong>extra</strong> weight (leave empty or 0 for none). Log your morning weight to see the total.';
+  return `Body ${store.formatKg(bw.kg)} kg + extra ${store.formatLift(extra)} kg = <strong>${store.formatKg(bw.kg + extra)} kg</strong> total`;
 }
 
 function restHTML(weekday) {
@@ -185,6 +250,7 @@ function restHTML(weekday) {
       <div class="rest-icon">${icon('moon')}</div>
       <h2>Recovery day</h2>
       <p>Muscles grow while you rest. Eat well, sleep well.</p>
+      <p class="streak-line kept" id="streak-line"></p>
       ${
         next
           ? `<button class="next-up" data-weekday="${next.weekday}">
@@ -255,7 +321,7 @@ function weighInHTML(editing = false) {
       <span class="weigh-icon">${icon('scale')}</span>
       <div class="weigh-text">
         <span class="weigh-label">Morning weight</span>
-        <small>${diff == null ? 'First weigh-in logged' : `${diffText} ${esc(relDay(prev.date))}`}</small>
+        <small>${diff == null ? 'First weigh-in logged' : `${diffText} ${esc(relDay(prev.date))}`}${goalHint()}</small>
       </div>
       <strong class="weigh-value">${store.formatKg(today.kg)}<small> kg</small></strong>
       <button class="icon-btn sm" data-action="edit-weight" aria-label="Change today's weight">${icon('edit')}</button>
@@ -276,6 +342,13 @@ function weighInHTML(editing = false) {
     </label>
     <button class="icon-btn weigh-save" type="submit" aria-label="Save weight">${icon('check')}</button>
   </form>`;
+}
+
+function goalHint() {
+  const g = bodyGoalStatus();
+  if (!g) return '';
+  if (g.reached) return ' · goal reached 🎉';
+  return ` · goal ${store.formatKg(g.goal.targetKg)} kg${g.status === 'on-track' ? ' ✓' : ''}`;
 }
 
 function renderWeighIn(editing = false) {
@@ -304,6 +377,11 @@ views.today.addEventListener('submit', (e) => {
   store.setBodyWeight(state.date, kg);
   vibrate(12);
   renderWeighIn();
+  updateNotifySummary();
+  // Total load on pull-ups/dips depends on today's body weight.
+  views.today.querySelectorAll('.ex-bw').forEach((line) => {
+    line.innerHTML = bodyweightLine(line.closest('.ex').querySelector('[data-weight]').value.replace(',', '.'));
+  });
   toast(`Morning weight saved: ${store.formatKg(kg)} kg`);
 });
 
@@ -339,6 +417,13 @@ function toggleSet(btn) {
   li.querySelector('.ex-num').innerHTML = exDone ? icon('check') : exIndex + 1;
 
   const after = store.progress(state.date, workout);
+  const streakBefore = Number(views.today.querySelector('#streak-chip strong')?.textContent || 0);
+  const s = renderStreak();
+  if (s.current > streakBefore && MILESTONES.includes(s.current)) {
+    toast(`🔥 ${s.current}-day streak! Keep it going.`);
+    vibrate([30, 50, 30, 50, 60]);
+  }
+  updateNotifySummary();
   const card = views.today.querySelector('.progress-card');
   card.classList.toggle('complete', after.done === after.total);
   card.querySelector('.progress-count').textContent = `${after.done} / ${after.total}`;
@@ -398,6 +483,32 @@ views.today.addEventListener('input', (e) => {
   if (!input) return;
   const clean = input.value.replace(',', '.').replace(/[^\d.]/g, '');
   store.setWeight(input.dataset.weight, state.date, clean);
+  const bwLine = input.closest('.ex').querySelector('.ex-bw');
+  if (bwLine) bwLine.innerHTML = bodyweightLine(clean);
+});
+
+// When a weight is committed, celebrate new records and reached goals.
+views.today.addEventListener('change', (e) => {
+  const input = e.target.closest('[data-weight]');
+  if (!input) return;
+  const id = input.dataset.weight;
+  const li = input.closest('.ex');
+  const value = Number(store.getWeight(id, state.date));
+  const has = store.getWeight(id, state.date) !== '';
+  const best = store.exerciseBest(id, state.date);
+  const isRecord = has && best && value > best.kg;
+  li.classList.toggle('record', !!isRecord);
+  li.querySelector('.ex-last').innerHTML = exerciseInfo(exerciseById(id), store.lastWeight(id, state.date));
+  if (!has) return;
+  const ex = exerciseById(id);
+  const goal = store.getGoals().exercises[id];
+  if (goal && value >= goal.targetKg && (!best || best.kg < goal.targetKg)) {
+    toast(`🎯 Goal reached: ${ex.name} ${formatLoad(ex, value)}!`);
+    vibrate([30, 50, 30, 50, 60]);
+  } else if (isRecord) {
+    toast(`🏆 New record: ${ex.name} ${formatLoad(ex, value)} (was ${formatLoad(ex, best.kg)})`);
+    vibrate([20, 40, 20]);
+  }
 });
 
 views.today.addEventListener('keydown', (e) => {

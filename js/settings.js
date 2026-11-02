@@ -1,10 +1,11 @@
-// Settings sheet: storage info + backup export/import.
+// Settings sheet: notifications, storage info, backup export/import.
 
 import { getAllPhotos, listPhotos, savePhoto } from './db.js';
 import { exportState, importState, dateKey } from './store.js';
 import { icon, toast, openSheet } from './ui.js';
+import { renderNotifySection } from './notify.js';
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 
 export function isStandalone() {
   return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -23,6 +24,7 @@ export function openSettings({ onChange } = {}) {
         <h2>Settings</h2>
         <button class="icon-btn" data-s="close" aria-label="Close">${icon('close')}</button>
       </div>
+      <section class="set-group" data-notify></section>
       <section class="set-group">
         <h3>Storage</h3>
         <div class="set-row"><span>Progress photos</span><strong data-s-val="count">…</strong></div>
@@ -41,6 +43,7 @@ export function openSettings({ onChange } = {}) {
         <p class="hint">Workout Overview v${APP_VERSION}${isStandalone() ? ' · installed' : ''}. Your plan lives in <code>js/plan.js</code> — edit it on GitHub and the app updates itself.</p>
       </section>`;
 
+    renderNotifySection(sheet.querySelector('[data-notify]'));
     const val = (k, v) => (sheet.querySelector(`[data-s-val="${k}"]`).textContent = v);
     listPhotos().then((p) => val('count', p.length));
     navigator.storage?.estimate?.().then((e) => val('usage', formatBytes(e.usage))).catch(() => val('usage', '–'));

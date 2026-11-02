@@ -1,9 +1,12 @@
-// Small JSON state in localStorage: set check-offs, lifting weights, body weight, settings.
+// Small JSON state in localStorage: set check-offs, lifting weights, body weight,
+// goals, settings.
 
 const KEYS = {
   log: 'wo.log', // { [date]: { [workoutId]: { [exerciseIndex]: [bool, ...] } } }
   weights: 'wo.weights', // { [exerciseId]: { [date]: "22.5" } }
   body: 'wo.body', // { [date]: 82.4 } — morning body weight in kg
+  goals: 'wo.goals', // { body: Goal | null, exercises: { [exerciseId]: Goal } }
+  push: 'wo.push', // this device's notification keys + subscription (not backed up)
   settings: 'wo.settings',
 };
 
@@ -51,6 +54,18 @@ export function addDays(key, n) {
 // Monday of the week containing `key`.
 export function mondayOf(key) {
   return addDays(key, -((parseDateKey(key).getDay() + 6) % 7));
+}
+
+// unit: 'days' | 'weeks' | 'months'
+export function addPeriod(key, amount, unit) {
+  if (unit === 'weeks') return addDays(key, amount * 7);
+  if (unit === 'days') return addDays(key, amount);
+  const d = parseDateKey(key);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + amount);
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return dateKey(d);
 }
 
 // --- Sets ----------------------------------------------------------------
@@ -101,6 +116,63 @@ export function dayStatus(date, workouts) {
   return status;
 }
 
+// --- Streak & day states ------------------------------------------------------
+
+// A workout day keeps the streak when at least this share of a workout's sets is done.
+export const STREAK_SHARE = 0.5;
+
+// Classifies every day for the heatmap and streak:
+//   'done' | 'most' (≥ half) | 'some' (< half) — sets were logged
+//   'rest'    planned rest day, nothing logged
+//   'missed'  planned workout day that passed without enough sets
+//   'pending' today is a workout day that isn't done yet
+//   'none'    before you started tracking
+export function trainingDays(workouts) {
+  const activity = activityByDate(workouts);
+  const start = Object.keys(activity).sort()[0] || null;
+  const today = dateKey();
+  const plannedDays = new Set(workouts.map((w) => w.weekday));
+  const isWorkoutDay = (date) => plannedDays.has(parseDateKey(date).getDay());
+
+  function state(date) {
+    const parts = activity[date];
+    if (parts) {
+      const best = Math.max(...parts.map((p) => p.done / p.total));
+      if (best >= 1) return 'done';
+      if (best >= STREAK_SHARE) return 'most';
+      return date === today && isWorkoutDay(date) ? 'pending' : 'some';
+    }
+    if (!start || date < start) return 'none';
+    if (!isWorkoutDay(date)) return 'rest';
+    return date === today ? 'pending' : 'missed';
+  }
+
+  // Rest days always count; workout days need at least half a workout.
+  const counts = (date) => {
+    if (!start || date < start) return false;
+    if (!isWorkoutDay(date)) return true;
+    const st = state(date);
+    return st === 'done' || st === 'most';
+  };
+
+  function streak() {
+    if (!start) return { current: 0, best: 0, todayCounts: false, pendingToday: isWorkoutDay(today) };
+    const todayCounts = counts(today);
+    let current = 0;
+    // Today can't break the streak until it's over.
+    for (let d = todayCounts ? today : addDays(today, -1); d >= start && counts(d); d = addDays(d, -1)) current++;
+    let best = 0;
+    let run = 0;
+    for (let d = start; d < today; d = addDays(d, 1)) {
+      run = counts(d) ? run + 1 : 0;
+      best = Math.max(best, run);
+    }
+    return { current, best: Math.max(best, current), todayCounts, pendingToday: !todayCounts && isWorkoutDay(today) };
+  }
+
+  return { activity, start, today, state, counts, streak, isWorkoutDay };
+}
+
 // Every day with at least one checked set: { [date]: [{ id, done, total }, ...] }
 export function activityByDate(workouts) {
   const out = {};
@@ -131,8 +203,37 @@ export function setWeight(exerciseId, date, value) {
 // Most recent weight logged before `date`.
 export function lastWeight(exerciseId, date) {
   const ex = read(KEYS.weights, {})[exerciseId] || {};
-  const prev = Object.keys(ex).filter((d) => d < date).sort().pop();
+  const prev = Object.keys(ex).filter((d) => d < date && ex[d] !== '').sort().pop();
   return prev ? { date: prev, value: ex[prev] } : null;
+}
+
+// Every logged weight for an exercise, oldest first: [{ date, kg }].
+// For bodyweight exercises this is the extra weight (0 = bodyweight only).
+export function exerciseHistory(exerciseId) {
+  const ex = read(KEYS.weights, {})[exerciseId] || {};
+  return Object.keys(ex)
+    .sort()
+    .map((date) => ({ date, kg: Number(ex[date]) }))
+    .filter((e) => ex[e.date] !== '' && Number.isFinite(e.kg) && e.kg >= 0);
+}
+
+// Heaviest weight (earliest date on ties), optionally only before `beforeDate`.
+export function exerciseBest(exerciseId, beforeDate = null) {
+  let best = null;
+  for (const e of exerciseHistory(exerciseId)) {
+    if (beforeDate && e.date >= beforeDate) break;
+    if (!best || e.kg > best.kg) best = e;
+  }
+  return best;
+}
+
+// The entries that set a new best, oldest first.
+export function exerciseRecords(exerciseId) {
+  const out = [];
+  for (const e of exerciseHistory(exerciseId)) {
+    if (!out.length || e.kg > out[out.length - 1].kg) out.push(e);
+  }
+  return out;
 }
 
 // --- Body weight -------------------------------------------------------------
@@ -163,9 +264,62 @@ export function formatKg(n) {
   return Math.abs(n * 10 - Math.round(n * 10)) < 1e-6 ? n.toFixed(1) : n.toFixed(2);
 }
 
+// Lifting weights: drop a trailing ".0" (22.5 → "22.5", 20 → "20").
+export function formatLift(n) {
+  return String(Math.round(n * 100) / 100);
+}
+
+// Body weight on a date: that morning's weigh-in, else the latest one before it,
+// else the earliest one there is.
+export function bodyWeightOn(date) {
+  const entries = getBodyWeights();
+  let found = null;
+  for (const e of entries) {
+    if (e.date > date) break;
+    found = e;
+  }
+  return found || entries[0] || null;
+}
+
+// --- Goals -----------------------------------------------------------------
+// Goal: { targetKg, startKg, startDate, targetDate (null = no deadline) }
+
+export function getGoals() {
+  const goals = read(KEYS.goals, {});
+  return { body: goals.body || null, exercises: goals.exercises || {} };
+}
+
+export function setBodyGoal(goal) {
+  write(KEYS.goals, { ...getGoals(), body: goal });
+}
+
+export function setExerciseGoal(exerciseId, goal) {
+  const goals = getGoals();
+  if (goal) goals.exercises[exerciseId] = goal;
+  else delete goals.exercises[exerciseId];
+  write(KEYS.goals, goals);
+}
+
+// --- Notifications (this device only) ---------------------------------------
+
+export function getPush() {
+  return read(KEYS.push, null);
+}
+
+export function setPush(value) {
+  write(KEYS.push, value);
+}
+
 // --- Settings ------------------------------------------------------------
 
-const DEFAULT_SETTINGS = { timer: 5, facing: 'user', overlay: 'ghost', hideInstallTip: false };
+const DEFAULT_SETTINGS = {
+  timer: 5,
+  facing: 'user',
+  overlay: 'ghost',
+  hideInstallTip: false,
+  // Reminder hours (local time), null = off.
+  reminders: { weighIn: 7, workout: 16, streak: 20, weekly: 19 },
+};
 
 export function getSettings() {
   return { ...DEFAULT_SETTINGS, ...read(KEYS.settings, {}) };
@@ -178,12 +332,16 @@ export function updateSettings(patch) {
 // --- Backup helpers ------------------------------------------------------
 
 export function exportState() {
-  return { log: read(KEYS.log, {}), weights: read(KEYS.weights, {}), body: read(KEYS.body, {}) };
+  return { log: read(KEYS.log, {}), weights: read(KEYS.weights, {}), body: read(KEYS.body, {}), goals: getGoals() };
 }
 
 // Merge imported state into what's already here (imported values win).
-export function importState({ log = {}, weights = {}, body = {} }) {
+export function importState({ log = {}, weights = {}, body = {}, goals = null }) {
   write(KEYS.body, { ...read(KEYS.body, {}), ...body });
+  if (goals) {
+    const cur = getGoals();
+    write(KEYS.goals, { body: goals.body || cur.body, exercises: { ...cur.exercises, ...goals.exercises } });
+  }
 
   const curLog = read(KEYS.log, {});
   for (const [date, workouts] of Object.entries(log)) {

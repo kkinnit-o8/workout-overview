@@ -1,0 +1,38 @@
+# Sends the app's reminder notifications (weigh-in, today's workout, streak check,
+# week ahead). Runs every hour; scripts/send-reminders.mjs decides what's due in
+# your time zone. Set up from the app: Settings → Notifications.
+name: Reminders
+
+on:
+  schedule:
+    - cron: '7 * * * *' # hourly, a few minutes past to dodge the top-of-hour rush
+  workflow_dispatch:
+    inputs:
+      test:
+        description: Send a test notification now
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reminders
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install web-push
+        working-directory: scripts
+        run: npm install --no-audit --no-fund --no-package-lock
+      - name: Send due reminders
+        run: node scripts/send-reminders.mjs
+        env:
+          PUSH_CONFIG: ${{ secrets.PUSH_CONFIG }}
+          REMINDER_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.test && 'test' || 'scheduled' }}
