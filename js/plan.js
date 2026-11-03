@@ -26,7 +26,7 @@ export const WORKOUTS = [
     title: 'Arms',
     poses: ['front-double-biceps', 'side-triceps', 'back-double-biceps'],
     exercises: [
-      { id: 'oh-triceps-ext', name: 'Overhead Dumbbell Triceps Extension', sets: 4, reps: '8–15' },
+      { id: 'db-kickback', name: 'Dumbbell Triceps Kickback', sets: 4, reps: '10–15' },
       { id: 'dips', name: 'Dips', sets: 3, reps: '6–12', bodyweight: true },
       { id: 'db-skull-crusher', name: 'Dumbbell Skull Crushers', sets: 3, reps: '10–15' },
       { id: 'db-curl', name: 'Dumbbell Curl', sets: 3, reps: '8–12' },
@@ -57,7 +57,7 @@ export const WORKOUTS = [
       { id: 'db-curl', name: 'Dumbbell Curl', sets: 3, reps: '6–12' },
       { id: 'hammer-curl', name: 'Hammer Curl', sets: 3, reps: '8–15' },
       { id: 'concentration-curl', name: 'Concentration Curl', sets: 2, reps: '10–15' },
-      { id: 'oh-triceps-ext', name: 'Overhead Dumbbell Triceps Extension', sets: 3, reps: '8–15' },
+      { id: 'db-kickback', name: 'Dumbbell Triceps Kickback', sets: 3, reps: '10–15' },
       { id: 'dips', name: 'Dips', sets: 3, reps: '6–15', bodyweight: true },
       { id: 'close-grip-db-press', name: 'Close-Grip Dumbbell Bench Press', sets: 3, reps: '8–15' },
       { id: 'db-lateral-raise', name: 'Dumbbell Lateral Raise', sets: 4, reps: '12–20' },
