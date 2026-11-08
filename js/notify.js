@@ -7,7 +7,7 @@
 // It also leaves a small summary for the service worker, so a reminder can say
 // "already done" instead of nagging.
 
-import { WORKOUTS } from './plan.js';
+import { ALL_WORKOUTS } from './plan.js';
 import * as store from './store.js';
 import { esc, icon, toast } from './ui.js';
 
@@ -96,7 +96,7 @@ export async function updateNotifySummary() {
   if (!store.getPush() || !('caches' in window)) return;
   try {
     const today = store.dateKey();
-    const days = store.trainingDays(WORKOUTS);
+    const days = store.trainingDays(ALL_WORKOUTS);
     const s = days.streak();
     const summary = {
       date: today,

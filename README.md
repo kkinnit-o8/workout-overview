@@ -8,6 +8,7 @@ No build step, no server, no accounts. Plain HTML/CSS/JS that GitHub Pages serve
 
 - **Morning weigh-in**: a quick card at the top of Today for this morning's body weight (kg). It shows the change since your last weigh-in.
 - **Today**: today's workout (Mon / Tue / Thu / Sat, rest days in between). Tap a set to check it off. Type the weight you used next to each exercise. The card shows last time, your record and your goal, and beating your record pops a 🏆. The week strip shows what you've completed this week, and you can tap any day to see that workout (or do it today instead).
+- **Rest-day bonus**: on a rest day, tap **Don't feel like resting? Get a workout** and the app picks one: Legs, Core, Legs + Core Express or Upper Back + Traps. It only picks workouts that don't hit yesterday's or tomorrow's muscles (so no back work before Thursday's pull-ups), favours the one you've done least recently, and says why it chose it. **Something else** swaps it, and **Rest instead** goes back to resting. The bonus workouts live in `js/plan.js` (`BONUS_WORKOUTS`).
 - **Pull-ups and dips**: type only the **extra** weight (leave it empty or 0 for none). The app adds your body weight from the morning weigh-in and shows the total.
 - **Streak** 🔥: days in a row on plan. Rest days count automatically; a workout day counts once at least half its sets are done. It's shown at the top of Today, along with how many sets are left to keep it.
 - **Progress photos**: once all sets are done, the app asks for 3 poses chosen for that day's muscles (e.g. Arms → front double biceps, side triceps, back double biceps). The camera screen has:
@@ -97,6 +98,7 @@ js/stats.js            Stats tab: streak, activity heatmap
 js/weight.js           body-weight card, chart and weight goal
 js/exercises.js        exercise records, charts and goals
 js/goals.js            "in X days/weeks/months" picker, goal progress
+js/bonus.js            picks a rest-day bonus workout
 js/chart.js            line chart used by the Stats tab
 js/notify.js           notification setup (keys, setup code)
 js/store.js            logs, weights, goals, streak (localStorage)

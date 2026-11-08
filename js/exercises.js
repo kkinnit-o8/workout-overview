@@ -1,20 +1,26 @@
 // Exercises card on the Stats tab: records, a weight chart per exercise, and goals.
 
-import { WORKOUTS, DAY_NAMES } from './plan.js';
+import { ALL_WORKOUTS, DAY_NAMES } from './plan.js';
 import * as store from './store.js';
 import { drawLineChart } from './chart.js';
 import { esc, icon, openSheet, toast } from './ui.js';
 import { longDate, shortDate, timeLeft, periodFieldsHTML, bindPeriodFields, readPeriod, periodFromDate, goalProgress, progressBarHTML } from './goals.js';
 
-// Every exercise in the plan once, in plan order: { id, name, bodyweight, days: ['Mon', ...], plans: ['4×6–12', ...] }
+// Every exercise in the plan (and the rest-day bonus workouts) once, in plan order:
+// { id, name, bodyweight, noWeight, bonusOnly, days: ['Mon', ...], plans: ['4×6–12', ...] }
 export function exerciseCatalog() {
   const byId = new Map();
-  for (const w of WORKOUTS) {
+  for (const w of ALL_WORKOUTS) {
     for (const ex of w.exercises) {
-      if (!byId.has(ex.id)) byId.set(ex.id, { id: ex.id, name: ex.name, bodyweight: !!ex.bodyweight, days: [], plans: [] });
+      if (!byId.has(ex.id)) {
+        byId.set(ex.id, { id: ex.id, name: ex.name, bodyweight: !!ex.bodyweight, noWeight: !!ex.noWeight, bonusOnly: true, days: [], plans: [] });
+      }
       const item = byId.get(ex.id);
-      item.days.push(DAY_NAMES[w.weekday].slice(0, 3));
-      item.plans.push(`${ex.sets}×${ex.reps}`);
+      const day = w.bonus ? 'Bonus' : DAY_NAMES[w.weekday].slice(0, 3);
+      if (!w.bonus) item.bonusOnly = false;
+      if (item.days.includes(day)) continue;
+      item.days.push(day);
+      item.plans.push(`${ex.sets}×${ex.reps}${ex.unit ? ` ${ex.unit}` : ''}`);
     }
   }
   return [...byId.values()];
@@ -51,7 +57,9 @@ export function renderExercisesCard(el) {
     card.dataset.bound = '1';
   }
   const weekAgo = store.addDays(store.dateKey(), -6);
+  // Bonus-workout exercises only show up once you've logged a weight for them.
   const rows = exerciseCatalog()
+    .filter((ex) => !ex.noWeight && (!ex.bonusOnly || store.exerciseHistory(ex.id).length))
     .map((ex) => {
       const best = store.exerciseBest(ex.id);
       const last = store.exerciseHistory(ex.id).pop();

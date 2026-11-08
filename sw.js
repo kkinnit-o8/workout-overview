@@ -2,7 +2,7 @@
 // cache in the background, so edits pushed to GitHub show up on the next launch.
 // Also shows the reminder notifications sent by .github/workflows/reminders.yml.
 
-const CACHE = 'workout-v3';
+const CACHE = 'workout-v4';
 const DATA_CACHE = 'workout-data'; // small summary written by the app (js/notify.js)
 const ASSETS = [
   './',
@@ -10,6 +10,7 @@ const ASSETS = [
   './manifest.webmanifest',
   './css/style.css',
   './js/app.js',
+  './js/bonus.js',
   './js/camera.js',
   './js/chart.js',
   './js/db.js',

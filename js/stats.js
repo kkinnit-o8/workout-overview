@@ -1,6 +1,6 @@
 // Stats tab: streak, GitHub-style activity heatmap, body weight, and exercises.
 
-import { WORKOUTS, workoutById, workoutForWeekday } from './plan.js';
+import { WORKOUTS, ALL_WORKOUTS, workoutById, workoutForWeekday } from './plan.js';
 import * as store from './store.js';
 import { listPhotos } from './db.js';
 import { esc, icon, formatDate } from './ui.js';
@@ -30,7 +30,7 @@ export async function renderStats(container, opts = {}) {
     el.dataset.bound = '1';
   }
 
-  days = store.trainingDays(WORKOUTS);
+  days = store.trainingDays(ALL_WORKOUTS);
   photoCounts = {};
   for (const p of await listPhotos()) photoCounts[p.date] = (photoCounts[p.date] || 0) + 1;
 
@@ -87,11 +87,16 @@ function tilesHTML() {
   const today = store.dateKey();
   const thisMonday = store.mondayOf(today);
   let thisWeek = 0;
+  let bonusThisWeek = 0;
   let total = 0;
   for (const [date, parts] of Object.entries(days.activity)) {
-    const n = parts.filter((p) => p.done === p.total).length;
-    total += n;
-    if (date >= thisMonday) thisWeek += n;
+    for (const p of parts) {
+      if (p.done !== p.total) continue;
+      total++;
+      if (date < thisMonday) continue;
+      if (workoutById(p.id)?.bonus) bonusThisWeek++;
+      else thisWeek++;
+    }
   }
   const monthAgo = store.addDays(today, -29);
   let records = 0;
@@ -100,7 +105,7 @@ function tilesHTML() {
     records += store.exerciseRecords(ex.id).slice(1).filter((r) => r.date >= monthAgo).length;
   }
   return `<div class="stats">
-    <div><strong>${thisWeek}<small>/${WORKOUTS.length}</small></strong><span>this week</span></div>
+    <div><strong>${thisWeek}<small>/${WORKOUTS.length}</small></strong><span>this week${bonusThisWeek ? ` + ${bonusThisWeek} bonus` : ''}</span></div>
     <div><strong>${total}</strong><span>workouts done</span></div>
     <div><strong>${records}</strong><span>records in 30 days</span></div>
   </div>`;
@@ -117,7 +122,10 @@ function describeDay(date) {
   const day = formatDate(store.parseDateKey(date), { weekday: 'short', day: 'numeric', month: 'short' });
   const st = days.state(date);
   const planned = workoutForWeekday(store.parseDateKey(date).getDay());
-  const bits = (days.activity[date] || []).map((p) => `${workoutById(p.id)?.title || p.id}: ${p.done}/${p.total} sets`);
+  const bits = (days.activity[date] || []).map((p) => {
+    const w = workoutById(p.id);
+    return `${w?.bonus ? 'Bonus ' : ''}${w?.title || p.id}: ${p.done}/${p.total} sets`;
+  });
   if (!bits.length) {
     if (st === 'rest') bits.push('Rest day');
     else if (st === 'missed') bits.push(`Missed: ${planned.title}`);

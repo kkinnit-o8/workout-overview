@@ -1,4 +1,4 @@
-import { WORKOUTS, REST_DAY_POSES, DAY_NAMES, workoutForWeekday } from './plan.js';
+import { ALL_WORKOUTS, REST_DAY_POSES, DAY_NAMES, workoutForWeekday, workoutById } from './plan.js';
 import { POSES } from './poses.js';
 import * as store from './store.js';
 import { listPhotos, thumbUrl } from './db.js';
@@ -8,6 +8,7 @@ import { renderStats } from './stats.js';
 import { bodyGoalStatus } from './weight.js';
 import { exerciseById, exerciseGoalStatus, formatLoad } from './exercises.js';
 import { updateNotifySummary } from './notify.js';
+import { pickBonus, bonusReason } from './bonus.js';
 import { openSettings, isStandalone } from './settings.js';
 import { esc, icon, toast, formatDate, vibrate } from './ui.js';
 
@@ -77,18 +78,28 @@ function nextWorkout(fromWeekday) {
   return null;
 }
 
+// The workout on screen: the plan day being viewed, or today's rest-day bonus
+// workout if you swapped the rest day for one.
+function shownWorkout() {
+  const planned = workoutForWeekday(state.weekday);
+  if (planned) return planned;
+  if (state.weekday !== store.parseDateKey(state.date).getDay()) return null;
+  const bonusId = store.getBonus(state.date);
+  return bonusId ? workoutById(bonusId) : null;
+}
+
 async function renderToday() {
   const el = views.today;
   const now = store.parseDateKey(state.date);
   const todayWeekday = now.getDay();
-  const workout = workoutForWeekday(state.weekday);
+  const workout = shownWorkout();
   const isOtherDay = state.weekday !== todayWeekday;
 
   const strip = weekDates()
     .map((d) => {
       const wd = d.getDay();
       const w = workoutForWeekday(wd);
-      const status = store.dayStatus(store.dateKey(d), WORKOUTS);
+      const status = store.dayStatus(store.dateKey(d), ALL_WORKOUTS);
       const cls = [
         'day',
         w ? 'has-workout' : 'rest',
@@ -139,7 +150,7 @@ async function renderToday() {
 const MILESTONES = [7, 14, 21, 30, 50, 75, 100, 150, 200, 250, 300, 365];
 
 function renderStreak() {
-  const s = store.trainingDays(WORKOUTS).streak();
+  const s = store.trainingDays(ALL_WORKOUTS).streak();
   const chip = views.today.querySelector('#streak-chip');
   if (chip) {
     chip.className = `streak-chip ${s.pendingToday ? 'pending' : ''}`;
@@ -148,9 +159,11 @@ function renderStreak() {
   }
   const line = views.today.querySelector('#streak-line');
   if (line) {
-    const workout = workoutForWeekday(state.weekday);
+    const workout = shownWorkout();
     const todayIsWorkout = !!workoutForWeekday(store.parseDateKey(state.date).getDay());
-    if (!todayIsWorkout) {
+    if (!todayIsWorkout && workout?.bonus) {
+      line.innerHTML = `${icon('flame')}<span>Rest day already counts for your <strong>${s.current}-day streak</strong> — this one's a bonus.</span>`;
+    } else if (!todayIsWorkout) {
       line.innerHTML = `${icon('flame')}<span>Rest days count — your streak is <strong>${s.current} day${s.current === 1 ? '' : 's'}</strong>.</span>`;
     } else if (s.pendingToday && workout) {
       const { done, total } = store.progress(state.date, workout);
@@ -183,15 +196,15 @@ function workoutHTML(workout) {
           <div class="ex-num">${allDone ? icon('check') : i + 1}</div>
           <div class="ex-title">
             <h3>${esc(ex.name)}</h3>
-            <div class="ex-meta">${ex.sets} sets × ${esc(ex.reps)} reps</div>
+            <div class="ex-meta">${ex.sets} sets × ${esc(ex.reps)} ${esc(ex.unit || 'reps')}</div>
           </div>
-          <label class="ex-weight">
+          ${ex.noWeight ? '' : `<label class="ex-weight">
             <input type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off"
               data-weight="${esc(ex.id)}" value="${esc(weight)}"
               placeholder="${last ? esc(last.value) : ex.bodyweight ? '0' : '–'}"
               aria-label="${ex.bodyweight ? `Extra weight for ${esc(ex.name)} in kg, on top of your body weight` : `Weight for ${esc(ex.name)} in kg`}">
             <span>${unit}</span>
-          </label>
+          </label>`}
         </div>
         <div class="sets">
           ${exSets
@@ -203,12 +216,13 @@ function workoutHTML(workout) {
             .join('')}
         </div>
         ${ex.bodyweight ? `<div class="ex-bw">${bodyweightLine(weight)}</div>` : ''}
-        <div class="ex-last">${exerciseInfo(ex, last)}</div>
+        <div class="ex-last">${ex.noWeight ? '' : exerciseInfo(ex, last)}</div>
       </li>`;
     })
     .join('');
 
   return `
+    ${workout.bonus ? bonusBannerHTML(workout) : ''}
     <div class="progress-card ${done === total ? 'complete' : ''}">
       <div class="progress-top">
         <span class="progress-label">${done === total ? 'Workout complete 💪' : 'Sets done'}</span>
@@ -243,14 +257,36 @@ function bodyweightLine(extraStr) {
   return `Body ${store.formatKg(bw.kg)} kg + extra ${store.formatLift(extra)} kg = <strong>${store.formatKg(bw.kg + extra)} kg</strong> total`;
 }
 
+function bonusBannerHTML(workout) {
+  return `<div class="bonus-banner">
+    <div class="bonus-top">
+      <span class="bonus-icon">${icon('bolt')}</span>
+      <div>
+        <div class="eyebrow">Rest-day bonus</div>
+        <p>${esc(bonusReason(workout, state.date))}</p>
+      </div>
+    </div>
+    <div class="bonus-actions">
+      <button class="btn btn-ghost btn-sm" data-action="bonus-swap">${icon('flip')} Something else</button>
+      <button class="btn btn-ghost btn-sm" data-action="bonus-cancel">${icon('moon')} Rest instead</button>
+    </div>
+  </div>`;
+}
+
 function restHTML(weekday) {
   const next = nextWorkout(weekday);
+  const isToday = weekday === store.parseDateKey(state.date).getDay();
   return `
     <div class="rest-card">
       <div class="rest-icon">${icon('moon')}</div>
       <h2>Recovery day</h2>
       <p>Muscles grow while you rest. Eat well, sleep well.</p>
       <p class="streak-line kept" id="streak-line"></p>
+      ${
+        isToday
+          ? `<button class="btn btn-ghost btn-block bonus-start" data-action="bonus-start">${icon('bolt')} Don't feel like resting? Get a workout</button>`
+          : ''
+      }
       ${
         next
           ? `<button class="next-up" data-weekday="${next.weekday}">
@@ -385,8 +421,46 @@ views.today.addEventListener('submit', (e) => {
   toast(`Morning weight saved: ${store.formatKg(kg)} kg`);
 });
 
+// --- Rest-day bonus ------------------------------------------------------------
+
+function hasCheckedSets(workout) {
+  return store.progress(state.date, workout).done > 0;
+}
+
+function startBonus() {
+  const bonus = pickBonus(state.date);
+  store.setBonus(state.date, bonus.id);
+  vibrate(12);
+  renderToday();
+  toast(`Bonus workout: ${bonus.title}`);
+}
+
+function swapBonus() {
+  const current = shownWorkout();
+  if (!current?.bonus) return;
+  if (hasCheckedSets(current) && !confirm(`Swap ${current.title} for something else? The sets you checked will be cleared.`)) return;
+  const next = pickBonus(state.date, current.id);
+  if (next.id === current.id) {
+    toast('This is the only bonus workout that fits today');
+    return;
+  }
+  store.clearWorkout(state.date, current.id);
+  store.setBonus(state.date, next.id);
+  renderToday();
+  toast(`Bonus workout: ${next.title}`);
+}
+
+function cancelBonus() {
+  const current = shownWorkout();
+  if (!current?.bonus) return;
+  if (hasCheckedSets(current) && !confirm('Rest instead? The sets you checked will be cleared.')) return;
+  store.clearWorkout(state.date, current.id);
+  store.setBonus(state.date, null);
+  renderToday();
+}
+
 function startPhotos() {
-  const workout = workoutForWeekday(state.weekday);
+  const workout = shownWorkout();
   openPhotoSession({
     poses: workout ? workout.poses : REST_DAY_POSES,
     workoutId: workout ? workout.id : null,
@@ -398,7 +472,7 @@ function startPhotos() {
 }
 
 function toggleSet(btn) {
-  const workout = workoutForWeekday(state.weekday);
+  const workout = shownWorkout();
   const li = btn.closest('.ex');
   const exIndex = Number(li.dataset.ex);
   const setIndex = Number(btn.dataset.set);
@@ -446,7 +520,7 @@ function updateStripStatus() {
   const btn = views.today.querySelector(`.week-strip .today`);
   if (!btn) return;
   btn.classList.remove('status-done', 'status-partial');
-  const status = store.dayStatus(state.date, WORKOUTS);
+  const status = store.dayStatus(state.date, ALL_WORKOUTS);
   if (status) btn.classList.add(`status-${status}`);
 }
 
@@ -466,6 +540,9 @@ views.today.addEventListener('click', (e) => {
   if (action === 'photos') startPhotos();
   else if (action === 'settings') settings();
   else if (action === 'edit-weight') renderWeighIn(true);
+  else if (action === 'bonus-start') startBonus();
+  else if (action === 'bonus-swap') swapBonus();
+  else if (action === 'bonus-cancel') cancelBonus();
   else if (action === 'back-today') {
     state.weekday = store.parseDateKey(state.date).getDay();
     renderToday();

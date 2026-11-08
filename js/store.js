@@ -6,6 +6,7 @@ const KEYS = {
   weights: 'wo.weights', // { [exerciseId]: { [date]: "22.5" } }
   body: 'wo.body', // { [date]: 82.4 } — morning body weight in kg
   goals: 'wo.goals', // { body: Goal | null, exercises: { [exerciseId]: Goal } }
+  bonus: 'wo.bonus', // { [date]: bonusWorkoutId } — rest days swapped for a bonus workout
   push: 'wo.push', // this device's notification keys + subscription (not backed up)
   settings: 'wo.settings',
 };
@@ -98,6 +99,15 @@ function countSets(entry = {}, workout) {
   return { done, total };
 }
 
+// Forget every checked set of one workout on one day.
+export function clearWorkout(date, workoutId) {
+  const log = read(KEYS.log, {});
+  if (!log[date]?.[workoutId]) return;
+  delete log[date][workoutId];
+  if (!Object.keys(log[date]).length) delete log[date];
+  write(KEYS.log, log);
+}
+
 export function progress(date, workout) {
   return countSets(read(KEYS.log, {})[date]?.[workout.id], workout);
 }
@@ -131,7 +141,7 @@ export function trainingDays(workouts) {
   const activity = activityByDate(workouts);
   const start = Object.keys(activity).sort()[0] || null;
   const today = dateKey();
-  const plannedDays = new Set(workouts.map((w) => w.weekday));
+  const plannedDays = new Set(workouts.filter((w) => w.weekday != null).map((w) => w.weekday));
   const isWorkoutDay = (date) => plannedDays.has(parseDateKey(date).getDay());
 
   function state(date) {
@@ -300,6 +310,19 @@ export function setExerciseGoal(exerciseId, goal) {
   write(KEYS.goals, goals);
 }
 
+// --- Rest-day bonus workouts ------------------------------------------------
+
+export function getBonus(date) {
+  return read(KEYS.bonus, {})[date] || null;
+}
+
+export function setBonus(date, workoutId) {
+  const bonus = read(KEYS.bonus, {});
+  if (workoutId) bonus[date] = workoutId;
+  else delete bonus[date];
+  write(KEYS.bonus, bonus);
+}
+
 // --- Notifications (this device only) ---------------------------------------
 
 export function getPush() {
@@ -332,12 +355,13 @@ export function updateSettings(patch) {
 // --- Backup helpers ------------------------------------------------------
 
 export function exportState() {
-  return { log: read(KEYS.log, {}), weights: read(KEYS.weights, {}), body: read(KEYS.body, {}), goals: getGoals() };
+  return { log: read(KEYS.log, {}), weights: read(KEYS.weights, {}), body: read(KEYS.body, {}), goals: getGoals(), bonus: read(KEYS.bonus, {}) };
 }
 
 // Merge imported state into what's already here (imported values win).
-export function importState({ log = {}, weights = {}, body = {}, goals = null }) {
+export function importState({ log = {}, weights = {}, body = {}, goals = null, bonus = {} }) {
   write(KEYS.body, { ...read(KEYS.body, {}), ...body });
+  write(KEYS.bonus, { ...read(KEYS.bonus, {}), ...bonus });
   if (goals) {
     const cur = getGoals();
     write(KEYS.goals, { body: goals.body || cur.body, exercises: { ...cur.exercises, ...goals.exercises } });
